@@ -63,7 +63,6 @@ jobs:
       # --- START OF MULTI-REPO AUTH LOGIC --- enables reusable github workflows accross the organisation
       - name: Generate Github token
         id: generate_token
-        if: ${{ secrets.DEVSTREAM_APP_ID != '' }}
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.DEVSTREAM_APP_ID }}
