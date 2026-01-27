@@ -21,11 +21,11 @@ on:
         required: false
         type: string
         default: 'false'
-      environment:
-        description: "GitHub Environment for approvals/deployment"
-        required: false
-        type: string
-        default: ""
+#      environment:
+#        description: "GitHub Environment for approvals/deployment"
+#        required: false
+#        type: string
+#        default: ""
     secrets:
       AZURE_CLIENT_ID:
         required: true
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
 
     # Use the GitHub Environment for manual approvals if defined
-    environment: ${{ inputs.environment }}
+#    environment: ${{ inputs.environment }}
 
     permissions:
       id-token: write

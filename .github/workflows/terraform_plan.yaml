@@ -11,10 +11,10 @@ on:
         description: "Name for the PR comment (e.g. 'Dev-Storage')"
         required: true
         type: string
-      environment:
-        required: false
-        type: string
-        default: ""
+#      environment:
+#        required: false
+#        type: string
+#        default: ""
       tf_version:
         description: "Terraform version"
         required: false
