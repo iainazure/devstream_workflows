@@ -33,7 +33,6 @@ jobs:
     name: "Terraform Plan"
     runs-on: ubuntu-latest
 
-    # Critical permissions for OIDC and PR Commenting
     permissions:
       id-token: write
       contents: read
@@ -57,9 +56,9 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          client-id: ${{ inputs.azure_client_id }}
-          tenant-id: ${{ inputs.azure_tenant_id }}
-          subscription-id: ${{ inputs.azure_subscription_id }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # --- START OF MULTI-REPO AUTH LOGIC --- enables reusable github workflows accross the organisation
       - name: Generate Github token
