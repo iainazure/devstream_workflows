@@ -1,0 +1,116 @@
+name: Terraform Apply
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: "Environment directory of terraform to APPLY."
+        required: true
+        type: string
+      gcloud_project_number:
+        description: "GCP Project number used to find workload identity pool."
+        required: true
+        type: string
+      gcloud_project_name:
+        description: "Name of GCP project to APPLY terraform to."
+        required: true
+        type: string
+      tf_options:
+        description: "Options to add to terraform apply command."
+        required: false
+        type: string
+      tf_version:
+        description: "Terraform version."
+        required: false
+        type: string
+      force_apply:
+        description: "When 'true' then run terraform_apply regardless of the value of github.ref"
+        required: false
+        type: string # use string instead of boolean as default can only be string
+        default: 'false'
+      runner_name:
+        description: "Where to run the workflow. Defaults to github-hosted runner."
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      environment:
+        description: "github environment"
+        required: false
+        type: string
+        default: ""
+      workload_identity_pool_id:
+        description: "The workload identity pool id to use for authentication."
+        required: false
+        type: string
+        default: "gutenberg-github-actions"
+
+jobs:
+  action:
+    runs-on: ${{ inputs.runner_name }}
+    permissions:
+      contents: "read"
+      id-token: "write"
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: SET UP - Authenticate to GCP - direct access
+        if: ${{ vars.GUTENBERG_TERRAFORM_ACCOUNT == '' }}
+        id: auth_without_sa
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/${{inputs.gcloud_project_number}}/locations/global/workloadIdentityPools/${{inputs.workload_identity_pool_id}}/providers/github"
+
+      - name: SET UP - Authenticate to GCP - impersonate SA
+        if: ${{ vars.GUTENBERG_TERRAFORM_ACCOUNT != '' }}
+        id: auth_with_sa
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/${{inputs.gcloud_project_number}}/locations/global/workloadIdentityPools/${{inputs.workload_identity_pool_id}}/providers/github"
+          service_account: ${{ vars.GUTENBERG_TERRAFORM_ACCOUNT }}
+      
+      - name: Generate Github token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GUTENBERG_APP_ID }}
+          private-key: ${{ secrets.GUTENBERG_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}  # Access for all repos, to retrieve modules
+      
+      - uses: actions/setup-node@v4  # required for terraform on self-hosted runners. Would be better if we built a new image.
+        if: ${{ inputs.runner_name != 'ubuntu-latest' }}
+        with:
+          node-version: 20  # from setup-terraform@v3 reqs
+      
+      - name: apt-get update
+        if: ${{ inputs.runner_name != 'ubuntu-latest' }}
+        id: apt-get-update
+        run: sudo apt-get update
+      
+      - name: install terraform pre-requirements
+        if: ${{ inputs.runner_name != 'ubuntu-latest' }}
+        id: install-terraform-prereqs
+        run: sudo apt-get --assume-yes install unzip git
+      
+      - name: configure git
+        run: git config --global url."https://x-access-token:${{steps.generate_token.outputs.token}}@github.com".insteadOf "https://github.com"
+      
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TERRAFORM_TOKEN }}
+          terraform_version: ${{ inputs.tf_version }}
+      
+      - name: Terraform Init
+        id: init
+        run: terraform init
+      
+      - name: Terraform Apply
+        env : 
+          TF_VAR_DD_API_KEY : ${{ secrets.DD_API_KEY }} 
+          TF_VAR_DD_APP_KEY : ${{ secrets.DD_APP_KEY }} 
+        id: apply
+        if: ${{ (github.ref == 'refs/heads/main') || (inputs.force_apply == 'true') }}
+        run: terraform apply -no-color -auto-approve -input=false ${{inputs.tf_options}}

@@ -1,0 +1,193 @@
+name: Terraform Plan (Azure)
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: "The directory containing the infrastructure blueprints (code) you want to run against Azure."
+        required: true
+        type: string
+      azure_tenant_id:
+        description: "Azure Tenant ID."
+        required: true
+        type: string
+      azure_client_id:
+        description: "Azure Service Principal Client ID (for OIDC)."
+        required: true
+        type: string
+      azure_subscription_id:
+        description: "Azure Subscription ID."
+        required: true
+        type: string
+      azure_resource_name:
+        description: "Logical name of the Azure resource/env for the PR comment (e.g. 'Production-Sub')."
+        required: true
+        type: string
+      tf_options:
+        description: "Options to add to terraform plan command."
+        required: false
+        type: string
+      tf_version:
+        description: "Terraform version."
+        required: false
+        type: string
+        default: "latest"
+      runner_name:
+        description: "GitHub runner label."
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      environment:
+        description: "GitHub environment for secrets/protection rules."
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  action:
+    runs-on: ${{ inputs.runner_name }}
+    permissions:
+      contents: read
+      id-token: write      # Required for requesting the JWT for Azure OIDC
+      pull-requests: write # Required for posting PR comments
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    environment: ${{ inputs.environment }}
+
+    env:
+      # These env vars are automatically picked up by the AzureRM provider
+      ARM_CLIENT_ID: ${{ inputs.azure_client_id }}
+      ARM_SUBSCRIPTION_ID: ${{ inputs.azure_subscription_id }}
+      ARM_TENANT_ID: ${{ inputs.azure_tenant_id }}
+      ARM_USE_OIDC: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ inputs.azure_client_id }}
+          tenant-id: ${{ inputs.azure_tenant_id }}
+          subscription-id: ${{ inputs.azure_subscription_id }}
+
+      - name: Generate Github token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.DEVSTREAM_APP_ID }}
+          private-key: ${{ secrets.DEVSTREAM_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - uses: actions/setup-node@v4
+        if: ${{ inputs.runner_name != 'ubuntu-latest' }}
+        with:
+          node-version: 20
+
+      - name: Install terraform pre-requirements (Self-hosted)
+        if: ${{ inputs.runner_name != 'ubuntu-latest' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get --assume-yes install unzip git
+
+      - name: Configure git for Private Modules
+        run: git config --global url."https://x-access-token:${{steps.generate_token.outputs.token}}@github.com".insteadOf "https://github.com"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TERRAFORM_TOKEN }}
+          terraform_version: ${{ inputs.tf_version }}
+
+      - name: Terraform fmt
+        id: fmt
+        run: terraform fmt -check
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        env :
+          TF_VAR_DD_API_KEY : ${{ secrets.DD_API_KEY }}
+          TF_VAR_DD_APP_KEY : ${{ secrets.DD_APP_KEY }}
+        run: |
+          terraform plan -input=false -out=plan.tmp ${{inputs.tf_options}}
+          terraform show -no-color plan.tmp > ${GITHUB_WORKSPACE}/plan.out
+
+      - name: Post Plan to PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const projectName = `${{ inputs.azure_resource_name }}`
+            const fs = require('fs')
+            
+            const run_url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            const run_link = `<a href="${run_url}">Actions</a>.`
+            
+            let plan_file = ""
+            try {
+              plan_file = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/plan.out`, 'utf8')
+            } catch (err) {
+              plan_file = "Error reading plan output."
+            }
+
+            const plan = plan_file.length > 64000 ? plan_file.substring(0, 64000) + "\n... (truncated)" : plan_file
+            const truncated_message = plan_file.length > 64000 ? `Output is too long and was truncated. View full Plan in ${run_link}<br /><br />` : ""
+            
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            })
+            
+            const botComment = comments.find(comment => {
+              return comment.user.type === 'Bot' && comment.body.includes(`Terraform Plan - ${ projectName }`)
+            })
+            
+            const output = `## Terraform Plan - ${ projectName }
+            #### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
+            <details><summary>Validation Output</summary>
+
+            \`\`\`\n
+            ${{ steps.validate.outputs.stdout }}
+            \`\`\`
+
+            </details>
+
+            #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`hcl\n
+            ${plan}
+            \`\`\`
+
+            </details>
+            ${truncated_message}`;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output
+              })
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+              })
+            }

@@ -1,0 +1,8 @@
+.idea/
+.vscode/
+node_modules/
+coverage/
+.npmrc
+test-projects/image-build/spec
+test-projects/image-build/src
+**DS_Store**
