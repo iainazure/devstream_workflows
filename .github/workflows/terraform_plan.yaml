@@ -18,7 +18,7 @@ on:
         default: "v1.14.3"
     secrets:
       AZURE_CLIENT_ID:
-        REQUIRED: true
+        required: true
       AZURE_SUBSCRIPTION_ID:
         required: true
       AZURE_TENANT_ID:
