@@ -7,18 +7,6 @@ on:
         description: "Folder containing the .tf files"
         required: true
         type: string
-      azure_tenant_id:
-        description: "Azure Tenant ID"
-        required: true
-        type: string
-      azure_client_id:
-        description: "Service Principal App ID"
-        required: true
-        type: string
-      azure_subscription_id:
-        description: "Azure Subscription ID"
-        required: true
-        type: string
       azure_resource_name:
         description: "Name for the PR comment (e.g. 'Dev-Storage')"
         required: true
@@ -29,10 +17,16 @@ on:
         type: string
         default: "v1.14.3"
     secrets:
+      AZURE_CLIENT_ID:
+        REQUIRED: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
       DEVSTREAM_APP_ID:
-        required: false
+        required: true
       DEVSTREAM_APP_PRIVATE_KEY:
-        required: false
+        required: true
 
 jobs:
   plan:
@@ -51,9 +45,9 @@ jobs:
 
     env:
       # These tell the AzureRM provider to use OIDC
-      ARM_CLIENT_ID: ${{ inputs.azure_client_id }}
-      ARM_SUBSCRIPTION_ID: ${{ inputs.azure_subscription_id }}
-      ARM_TENANT_ID: ${{ inputs.azure_tenant_id }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
 
     steps:
