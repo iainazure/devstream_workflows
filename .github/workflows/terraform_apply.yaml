@@ -1,0 +1,99 @@
+name: "Terraform Apply (Azure OIDC)"
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: "Folder containing the .tf files"
+        required: true
+        type: string
+      azure_resource_name:
+        description: "Name of the resource for logging"
+        required: true
+        type: string
+      tf_version:
+        description: "Terraform version"
+        required: false
+        type: string
+        default: "1.10.0"
+      force_apply:
+        description: "When 'true' then run apply regardless of branch"
+        required: false
+        type: string
+        default: 'false'
+      environment:
+        description: "GitHub Environment for approvals/deployment"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      DEVSTREAM_APP_ID:
+        required: true
+      DEVSTREAM_APP_PRIVATE_KEY:
+        required: true
+
+jobs:
+  apply:
+    name: "Terraform Apply"
+    runs-on: ubuntu-latest
+
+    # Use the GitHub Environment for manual approvals if defined
+    environment: ${{ inputs.environment }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: true
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Generate Github token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.DEVSTREAM_APP_ID }}
+          private-key: ${{ secrets.DEVSTREAM_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Configure git for Private Modules
+        run: |
+          git config --global url."https://x-access-token:${{steps.generate_token.outputs.token}}@github.com".insteadOf "https://github.com"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.tf_version }}
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+
+      - name: Terraform Apply
+        id: apply
+        # Only run on main branch OR if force_apply is string 'true'
+        if: github.ref == 'refs/heads/main' || inputs.force_apply == 'true'
+        run: terraform apply -auto-approve -input=false -no-color
