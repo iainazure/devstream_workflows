@@ -24,9 +24,9 @@ on:
       AZURE_TENANT_ID:
         required: true
       DEVSTREAM_APP_ID:
-        required: true
+        required: false
       DEVSTREAM_APP_PRIVATE_KEY:
-        required: true
+        required: false
 
 jobs:
   plan:
