@@ -11,11 +11,15 @@ on:
         description: "Name for the PR comment (e.g. 'Dev-Storage')"
         required: true
         type: string
+      environment:
+        required: false
+        type: string
+        default: ""
       tf_version:
         description: "Terraform version"
         required: false
         type: string
-        default: "v1.14.3"
+        default: "1.14.3"
     secrets:
       AZURE_CLIENT_ID:
         required: true
