@@ -47,6 +47,9 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
 
     env:
+      # These are used for the GitHub comment
+      TF_VAR_github_token: ${{ secrets.DEVSTREAM_GITHUB_PAT }}
+      TF_VAR_github_org: "iainazure"
       # These tell the AzureRM provider to use OIDC
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
